@@ -1,0 +1,209 @@
+
+
+<!-- FREE USE CODE - I LEFT NOTES FOR SORTING -->
+
+
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; max-width:900px; margin:24px auto; padding:16px; line-height:1.45; }
+    header h1 { margin:0 0 8px 0; font-size:20px; }
+    label { display:block; margin-top:12px; font-weight:600; }
+    input[type="text"], textarea { width:100%; padding:8px; font-size:14px; box-sizing:border-box; margin-top:6px; }
+    button { margin-top:12px; padding:10px 14px; font-size:14px; cursor:pointer; border-radius:6px; border:1px solid #999; background:#f4f4f4; }
+    button.primary { background:#4f46e5; color:white; border-color:#4f46e5; }
+    .controls { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+    .status { margin-top:12px; padding:10px; border-radius:8px; background:#fafafa; border:1px solid #eee; }
+    img#lastCat, img#lastDog { max-width:100%; border-radius:8px; margin-top:12px; border:1px solid #ddd; }
+    footer { margin-top:18px; font-size:13px; color:#555; }
+    .warning { color:#8a0707; font-weight:700; }
+    .section { margin-top:40px; }
+  </style>
+</head>
+<body>
+
+  <!-- CATS : -->
+  <header>
+    <h1>Discord webhook cat sender — every 30s</h1>
+    <div>Fetches a free cat image and posts it to your Discord webhook every 30 seconds.</div>
+  </header>
+
+  <main class="section">
+    <label for="catWebhook">Discord webhook URL (Cat)</label>
+    <input id="catWebhook" type="text" placeholder="https://discord.com/api/webhooks/..." />
+
+    <label for="catMode">Send mode</label>
+    <select id="catMode" title="Choose whether to use an embed (image only) or a content message">
+      <option value="embed" selected>Embed (image displayed inside message)</option>
+      <option value="content">Content (send image URL as message text)</option>
+    </select>
+
+    <div class="controls">
+      <button id="catStartBtn" class="primary">Start (every 1 min)</button>
+      <button id="catStopBtn" disabled>Stop</button>
+      <button id="catSendNowBtn">Send one now</button>
+      <button id="catTestBtn">Test webhook (no cat)</button>
+    </div>
+
+    <div class="status" id="catStatus">Status: stopped</div>
+
+    <label>Last sent cat</label>
+    <img id="lastCat" alt="Last cat sent" src="" />
+  </main>
+
+  <!-- DOGS : -->
+  <header class="section">
+    <h1>Discord webhook dog sender (BETA) — every 1 minute</h1>
+    <div>Fetches a free dog image and posts it to your Discord webhook every 60 seconds.</div>
+  </header>
+
+  <main class="section">
+    <label for="dogWebhook">Discord webhook URL (Dog)</label>
+    <input id="dogWebhook" type="text" placeholder="https://discord.com/api/webhooks/..." />
+
+    <label for="dogMode">Send mode</label>
+    <select id="dogMode" title="Choose whether to use an embed (image only) or a content message">
+      <option value="embed" selected>Embed (image displayed inside message)</option>
+      <option value="content">Content (send image URL as message text)</option>
+    </select>
+
+    <div class="controls">
+      <button id="dogStartBtn" class="primary">Start (every 1 min)</button>
+      <button id="dogStopBtn" disabled>Stop</button>
+      <button id="dogSendNowBtn">Send one now</button>
+      <button id="dogTestBtn">Test webhook (no dog)</button>
+    </div>
+
+    <div class="status" id="dogStatus">Status: stopped</div>
+
+    <label>Last sent dog</label>
+    <img id="lastDog" alt="Last dog sent" src="" />
+  </main>
+
+  <footer>
+    <div class="warning">Security:</div>
+    <div>
+      Client-side web pages expose your webhook URL. If others can view the page or network traffic, they can use your webhook. Keep this file local or run from a server.
+    </div>
+    <div style="margin-top:8px">
+      APIs used (no API key): 
+      <code>https://api.thecatapi.com/v1/images/search</code> (cats), 
+      <code>https://aws.random.cat/meow</code> (cat fallback), 
+      <code>https://random.dog/woof.json</code> (dogs).
+    </div>
+  </footer>
+
+  <script>
+    const INTERVAL_MS = 30_000; // 30 seconds
+
+    // --- cat ---
+    const catWebhookInput = document.getElementById('catWebhook');
+    const catStartBtn = document.getElementById('catStartBtn');
+    const catStopBtn = document.getElementById('catStopBtn');
+    const catSendNowBtn = document.getElementById('catSendNowBtn');
+    const catTestBtn = document.getElementById('catTestBtn');
+    const catStatusEl = document.getElementById('catStatus');
+    const catModeSelect = document.getElementById('catMode');
+    const lastCatImg = document.getElementById('lastCat');
+    let catTimer = null;
+    let catRunning = false;
+
+    function setCatStatus(text, isError=false){
+      catStatusEl.textContent = 'Status: '+text;
+      catStatusEl.style.color = isError ? '#8a0707' : '#111';
+    }
+
+    async function fetchCatImage(){
+      try {
+        const r = await fetch('https://api.thecatapi.com/v1/images/search', {cache:'no-store'});
+        const j = await r.json();
+        if(j[0]?.url) return j[0].url;
+      } catch {}
+      try {
+        const r2 = await fetch('https://aws.random.cat/meow', {cache:'no-store'});
+        const j2 = await r2.json();
+        if(j2?.file) return j2.file;
+      } catch {}
+      throw new Error('(?) NO IMAGE FOUND');
+    }
+
+    async function sendToWebhook(url, imageUrl, mode){
+      if(!url) throw new Error('Webhook URL empty');
+      let body = mode==='embed'? { embeds:[{title:'', image:{url:imageUrl}}] } : { content:imageUrl };
+      const res = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      if(!res.ok) throw new Error('Webhook error '+res.status);
+    }
+
+    async function sendCat(showStatus=true){
+      const url = catWebhookInput.value.trim();
+      if(!url){ setCatStatus('Webhook missing', true); return; }
+      try{
+        if(showStatus) setCatStatus('Fetching cat image…');
+        const img = await fetchCatImage();
+        if(showStatus) setCatStatus('Sending to webhook…');
+        await sendToWebhook(url, img, catModeSelect.value);
+        lastCatImg.src = img;
+        if(showStatus) setCatStatus('Sent at '+(new Date()).toLocaleTimeString());
+      }catch(e){ console.error(e); setCatStatus('Error: '+e.message,true);}
+    }
+
+    function startCat(){ if(catRunning) return; sendCat(); catTimer = setInterval(sendCat, INTERVAL_MS); catRunning=true; catStartBtn.disabled=true; catStopBtn.disabled=false; setCatStatus('Running…'); }
+    function stopCat(){ if(!catRunning) return; clearInterval(catTimer); catRunning=false; catStartBtn.disabled=false; catStopBtn.disabled=true; setCatStatus('Stopped'); }
+    async function testCat(){ try{ await sendToWebhook(catWebhookInput.value.trim(),'https://cdn-icons-png.flaticon.com/512/616/616408.png',catModeSelect.value); setCatStatus('Test sent'); }catch(e){ setCatStatus('Error: '+e.message,true);} }
+
+    catStartBtn.addEventListener('click', startCat);
+    catStopBtn.addEventListener('click', stopCat);
+    catSendNowBtn.addEventListener('click', ()=>sendCat(true));
+    catTestBtn.addEventListener('click', testCat);
+
+    // --- dawgs ---
+    const dogWebhookInput = document.getElementById('dogWebhook');
+    const dogStartBtn = document.getElementById('dogStartBtn');
+    const dogStopBtn = document.getElementById('dogStopBtn');
+    const dogSendNowBtn = document.getElementById('dogSendNowBtn');
+    const dogTestBtn = document.getElementById('dogTestBtn');
+    const dogStatusEl = document.getElementById('dogStatus');
+    const dogModeSelect = document.getElementById('dogMode');
+    const lastDogImg = document.getElementById('lastDog');
+    let dogTimer = null;
+    let dogRunning = false;
+
+    function setDogStatus(text, isError=false){
+      dogStatusEl.textContent = 'Status: '+text;
+      dogStatusEl.style.color = isError ? '#8a0707' : '#111';
+    }
+
+    async function fetchDogImage(){
+      try {
+        const r = await fetch('https://random.dog/woof.json',{cache:'no-store'});
+        const j = await r.json();
+        if(j.url?.match(/\.(jpg|jpeg|png|gif)$/)) return j.url;
+        return fetchDogImage();
+      } catch {}
+      throw new Error('No dog image found');
+    }
+
+    async function sendDog(showStatus=true){
+      const url = dogWebhookInput.value.trim();
+      if(!url){ setDogStatus('Webhook missing', true); return; }
+      try{
+        if(showStatus) setDogStatus('Fetching dog image…');
+        const img = await fetchDogImage();
+        if(showStatus) setDogStatus('Sending to webhook…');
+        await sendToWebhook(url,img,dogModeSelect.value);
+        lastDogImg.src = img;
+        if(showStatus) setDogStatus('Sent at '+(new Date()).toLocaleTimeString());
+      }catch(e){ console.error(e); setDogStatus('Error: '+e.message,true);}
+    }
+
+    function startDog(){ if(dogRunning) return; sendDog(); dogTimer=setInterval(sendDog,INTERVAL_MS); dogRunning=true; dogStartBtn.disabled=true; dogStopBtn.disabled=false; setDogStatus('Running…'); }
+    function stopDog(){ if(!dogRunning) return; clearInterval(dogTimer); dogRunning=false; dogStartBtn.disabled=false; dogStopBtn.disabled=true; setDogStatus('Stopped'); }
+    async function testDog(){ try{ await sendToWebhook(dogWebhookInput.value.trim(),'https://cdn-icons-png.flaticon.com/512/616/616408.png',dogModeSelect.value); setDogStatus('Test sent'); }catch(e){ setDogStatus('Error: '+e.message,true);} }
+
+    dogStartBtn.addEventListener('click', startDog);
+    dogStopBtn.addEventListener('click', stopDog);
+    dogSendNowBtn.addEventListener('click', ()=>sendDog(true));
+    dogTestBtn.addEventListener('click', testDog);
+
+  </script>
+
+</body>
+</html>
